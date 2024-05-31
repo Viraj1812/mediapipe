@@ -1,12 +1,13 @@
 package com.example.mediapipe
-
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.AttributeSet
+import android.util.Log
 import android.view.View
 import androidx.core.content.ContextCompat
+import com.example.mediapipe.R
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
@@ -20,9 +21,12 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     private var linePaint = Paint()
     private var pointPaint = Paint()
 
+    var resultChangeListener: ResultChangeListener? = null
     private var scaleFactor: Float = 1f
-    private var imageWidth: Int = 1
-    private var imageHeight: Int = 1
+    private var imageWidth: Float = 0.5f
+    private var imageHeight: Float = 0.5f
+    var result : String = "Let's Play"
+
 
     init {
         initPaints()
@@ -50,7 +54,30 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     override fun draw(canvas: Canvas) {
         super.draw(canvas)
         results?.let { handLandmarkerResult ->
+            var handDetected = false
             for (landmark in handLandmarkerResult.landmarks()) {
+                val point_x = mutableListOf<Float>()
+                val point_y = mutableListOf<Float>()
+                for (normalizedLandmark in landmark) {
+
+                    val x = normalizedLandmark.x() * imageWidth * scaleFactor
+                    val y = normalizedLandmark.y() * imageHeight * scaleFactor
+
+                    point_x.add(x)
+                    point_y.add(y)
+                    handDetected = true
+                }
+
+                Log.d("Point_x","${point_x}")
+                Log.d("Point_y","${point_y}")
+                val temp = findHandGesture(point_x,point_y)
+
+                if(temp != result)
+                {
+                    result = temp
+                    resultChangeListener?.onResultChanged(result)
+                }
+
                 for (normalizedLandmark in landmark) {
                     canvas.drawPoint(
                         normalizedLandmark.x() * imageWidth * scaleFactor,
@@ -72,14 +99,21 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
                         linePaint
                     )
                 }
+
             }
+            if (!handDetected && result != "Let's Play") {
+                result = "Let's Play"
+                resultChangeListener?.onResultChanged(result)
+            }
+
+
         }
     }
 
     fun setResults(
         handLandmarkerResults: HandLandmarkerResult,
-        imageHeight: Int,
-        imageWidth: Int,
+        imageHeight: Float,
+        imageWidth: Float,
         runningMode: RunningMode = RunningMode.IMAGE
     ) {
         results = handLandmarkerResults
@@ -104,5 +138,25 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
 
     companion object {
         private const val LANDMARK_STROKE_WIDTH = 8F
+    }
+
+    private fun findHandGesture(positions_X: List<Float>, positions_Y: List<Float>): String {
+        val dist = positions_X.indices.map { i ->
+            (positions_X[i] - positions_X[0]) * (positions_X[i] - positions_X[0]) +
+                    (positions_Y[i] - positions_Y[0]) * (positions_Y[i] - positions_Y[0])
+        }
+
+        if (dist[6] > dist[8] && dist[10] > dist[12] && dist[14] > dist[16] && dist[18] > dist[20]) {
+            return "Stone"
+        } else if (dist[8] > dist[6] && dist[12] > dist[10] && dist[18] > dist[20] && dist[14] > dist[16]) {
+            return "Scissor"
+        } else if (dist[8] > dist[6] && dist[12] > dist[10] && dist[16] > dist[14] && dist[20] > dist[18]) {
+            return "Paper"
+        }
+        return ""
+    }
+
+    interface ResultChangeListener {
+        fun onResultChanged(result: String)
     }
 }

@@ -2,20 +2,17 @@ package com.example.mediapipe
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageFormat
-import android.graphics.Rect
-import android.graphics.YuvImage
-import android.util.Log
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.view.View
-import android.widget.FrameLayout
-import androidx.camera.core.*
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import android.view.ViewGroup
+import android.widget.ImageView
 import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleOwner
+import androidx.constraintlayout.widget.ConstraintSet
 import androidx.lifecycle.lifecycleScope
+
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -24,23 +21,17 @@ import io.flutter.plugin.platform.PlatformView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import android.media.Image
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
 
 class CustomImageView(
     private val context: Context,
     id: Int,
-    creationParams: Map<String, Any>?,
+    creationParams: Map<*, *>?,
     private val activity: MainActivity
 ) : PlatformView {
 
     private val constrainLayout: ConstraintLayout = ConstraintLayout(context)
-    private val previewView: PreviewView = PreviewView(context)
     private val overlayView = OverlayView(context, null)
+    private val imageView = ImageView(context)
 
     private val baseOperationsBuilder = BaseOptions.builder().setModelAssetPath("hand_landmarker.task")
     private val baseOptions = baseOperationsBuilder.build()
@@ -51,113 +42,128 @@ class CustomImageView(
         .setMinTrackingConfidence(0.5f)
         .setMinHandPresenceConfidence(0.5f)
         .setNumHands(2)
-        .setRunningMode(RunningMode.LIVE_STREAM)
+        .setRunningMode(RunningMode.IMAGE)
 
     private val options = optionsBuilder.build()
+
     private var handLandmarker: HandLandmarker? = null
-
-    private var cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-
-    init {
-        handLandmarker = HandLandmarker.createFromOptions(context, options)
-
-        constrainLayout.id = View.generateViewId()
-        val layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        )
-        constrainLayout.layoutParams = layoutParams
-
-        previewView.id = View.generateViewId()
-        constrainLayout.addView(previewView)
-
-        overlayView.id = View.generateViewId()
-        constrainLayout.addView(overlayView)
-
-        startCamera()
-
-        activity.lifecycleScope.launch {
-            withContext(Dispatchers.Main) {
-                startCamera()
-            }
-        }
-    }
 
     override fun getView(): View {
         return constrainLayout
     }
 
-    override fun dispose() {
-        cameraExecutor.shutdown()
-        handLandmarker?.close()
+    override fun dispose() {}
+
+    init {
+        handLandmarker = HandLandmarker.createFromOptions(context, options)
+
+        constrainLayout.id = View.generateViewId()
+        val layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+
+        constrainLayout.layoutParams = layoutParams
+
+        val constraintSet = ConstraintSet()
+        constraintSet.clone(constrainLayout)
+
+        imageView.id = View.generateViewId()
+        constrainLayout.addView(imageView) // Corrected this line to add imageView instead of constrainLayout
+        imageView.scaleType = ImageView.ScaleType.FIT_XY
+        constraintSet.constrainWidth(imageView.id, ConstraintSet.MATCH_CONSTRAINT)
+        constraintSet.constrainHeight(imageView.id, ConstraintSet.MATCH_CONSTRAINT)
+        constraintSet.connect(
+            imageView.id,
+            ConstraintSet.START,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.START
+        )
+        constraintSet.connect(
+            imageView.id,
+            ConstraintSet.TOP,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.TOP
+        )
+        constraintSet.connect(
+            imageView.id,
+            ConstraintSet.END,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.END
+        )
+        constraintSet.connect(
+            imageView.id,
+            ConstraintSet.BOTTOM,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.BOTTOM
+        )
+
+        overlayView.id = View.generateViewId()
+        constrainLayout.addView(overlayView)
+        constraintSet.constrainWidth(overlayView.id, ConstraintSet.MATCH_CONSTRAINT)
+        constraintSet.constrainHeight(overlayView.id, ConstraintSet.MATCH_CONSTRAINT)
+        constraintSet.connect(
+            overlayView.id,
+            ConstraintSet.START,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.START
+        )
+        constraintSet.connect(
+            overlayView.id,
+            ConstraintSet.TOP,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.TOP
+        )
+        constraintSet.connect(
+            overlayView.id,
+            ConstraintSet.END,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.END
+        )
+        constraintSet.connect(
+            overlayView.id,
+            ConstraintSet.BOTTOM,
+            ConstraintSet.PARENT_ID,
+            ConstraintSet.BOTTOM
+        )
+
+        constraintSet.applyTo(constrainLayout)
+
+//        activity.lifecycleScope.launch {
+//            display(Uri.parse(creationParams?.get("imageUrl")?.toString()))
+//        }
     }
 
-    private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-            bindCameraUseCases(cameraProvider)
-        }, ContextCompat.getMainExecutor(context))
-    }
+//    private suspend fun display(mediaUri: Uri) {
+//        withContext(Dispatchers.IO) {
+//            val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+//                val source = ImageDecoder.createSource(context.contentResolver, mediaUri)
+//                ImageDecoder.decodeBitmap(source)
+//            } else {
+//                MediaStore.Images.Media.getBitmap(context.contentResolver, mediaUri)
+//            }.copy(Bitmap.Config.ARGB_8888, true)
+//
+//            bitmap?.let {
+//                val scaleDown = it.scaleDown(512F)
+//                val mpImage = BitmapImageBuilder(scaleDown).build()
+//
+//                val result = handLandmarker?.detect(mpImage)
+//
+//                result?.let { res ->
+//                    overlayView.setResults(res, mpImage.height.toFloat(), mpImage.width.toFloat())
+//                }
+//                withContext(Dispatchers.Main) {
+//                    imageView.load(bitmap) {}
+//                }
+//            }
+//        }
+//    }
 
-    private fun bindCameraUseCases(cameraProvider: ProcessCameraProvider) {
-        val preview = Preview.Builder().build().also {
-            it.setSurfaceProvider(previewView.surfaceProvider)
-        }
-
-        val imageAnalyzer = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build()
-            .also {
-                it.setAnalyzer(cameraExecutor, { imageProxy ->
-                    processImageProxy(imageProxy)
-                })
-            }
-
-        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-        try {
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(activity as LifecycleOwner, cameraSelector, preview, imageAnalyzer)
-        } catch (e: Exception) {
-            Log.e("CustomImageView", "Use case binding failed", e)
-        }
-    }
-
-    private fun processImageProxy(imageProxy: ImageProxy) {
-        val mediaImage = imageProxy.image ?: return
-
-        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-        val bitmap = mediaImage.toBitmap()
-        val mpImage = BitmapImageBuilder(bitmap)(rotationDegrees).build()
-
-        val result = handLandmarker?.detect(mpImage)
-        result?.let {
-            overlayView.setResults(it, bitmap.height, bitmap.width)
-        }
-
-        imageProxy.close()
-    }
-
-    private fun Image.toBitmap(): Bitmap {
-        val yBuffer = planes[0].buffer
-        val uBuffer = planes[1].buffer
-        val vBuffer = planes[2].buffer
-
-        val ySize = yBuffer.remaining()
-        val uSize = uBuffer.remaining()
-        val vSize = vBuffer.remaining()
-
-        val nv21 = ByteArray(ySize + uSize + vSize)
-
-        yBuffer.get(nv21, 0, ySize)
-        vBuffer.get(nv21, ySize, vSize)
-        uBuffer.get(nv21, ySize + vSize, uSize)
-
-        val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-        val out = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(Rect(0, 0, width, height), 100, out)
-        val imageBytes = out.toByteArray()
-        return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+    private fun Bitmap.scaleDown(targetWidth: Float): Bitmap {
+        if (targetWidth >= width) return this
+        val scaleFactor = targetWidth / width
+        return Bitmap.createScaledBitmap(
+            this, (width * scaleFactor).toInt(), (height * scaleFactor).toInt(), false
+        )
     }
 }
